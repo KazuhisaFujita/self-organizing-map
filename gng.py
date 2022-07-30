@@ -1,6 +1,6 @@
 #---------------------------------------
 #Since : Jun/17/2012
-#Update: 2020/12/25
+#Update: 2022/07/30
 # -*- coding: utf-8 -*-
 #---------------------------------------
 from PIL import Image
@@ -14,7 +14,7 @@ from sklearn import cluster, datasets
 import matplotlib.pyplot as plt
 
 class GNG(object):
-    def __init__(self, num = 25, end = 100000, lam = 100, ew = 0.1, en = 0.01, amax = 20.0, alpha = 0.5, beta = 0.9, sig_kernel = 0.5):
+    def __init__(self, num = 25, end = 100000, lam = 100, ew = 0.1, en = 0.01, amax = 20.0, alpha = 0.5, beta = 0.9):
         # Set Parameters
 
         # max of units
@@ -33,9 +33,6 @@ class GNG(object):
         self.Alpha = alpha
         # reduction rate of Error
         self.Beta = beta
-
-        # kernel
-        self.sig_kernel = sig_kernel
 
     def initialize_units(self, data):
         #dimension
@@ -59,25 +56,18 @@ class GNG(object):
 
     def dists(self, x, units):
         #calculate distance
-        return np.linalg.norm(units - x, axis=1)
+        return np.linalg.norm(units - x, axis=1)**2
 
     def dw(self, x, unit):
         return x - unit
 
-    def kernel(self, x):
-        return(np.exp(- np.linalg.norm(np.expand_dims(x, axis = 1) - x,axis=2)**2/2/(self.sig_kernel**2)))
-
-    def affinity(self):
-        self.units = self.units[np.isfinite(self.units[:,0])]
-        A = nx.adjacency_matrix(self.g_units, weight=1)
-        A = np.array(A.todense())
-        A = A * self.kernel(self.units)
-        return A
-
     def normalize(self, data):
-        self.mindata = data[np.argmin(np.linalg.norm(data, axis=1))]
-        self.diff_max_min = np.linalg.norm( data[np.argmax(np.linalg.norm(data, axis=1))] - data[np.argmin(np.linalg.norm(data, axis=1))])
-        data = (data - self.mindata) / self.diff_max_min
+        # data -= np.mean(data, axis = 0)
+        # max_norm = np.max(np.linalg.norm(data, axis=1))
+        # data /= max_norm
+
+        data -= np.mean(data, axis = 0)
+        data = data / np.std(np.linalg.norm(data, axis=1))
         return data
 
     def train(self, data):
@@ -120,13 +110,13 @@ class GNG(object):
                 # Move the neighbors of s_1 towards the input.
                 units[i] += self.En  * self.dw(x, units[i])
 
+                # Remove edge
                 if g_units[s_1][i]['weight'] > self.AMAX:
                     g_units.remove_edge(s_1,i)
                 if g_units.degree(i) == 0:
                     g_units.remove_node(i)
                     units[i] += float("inf")
                     sumerror[i] = 0
-                    #end set
 
             # Every lambda, insert a new neuron.
             count += 1
@@ -166,8 +156,18 @@ class GNG(object):
             # Decrease all errors.
             sumerror *= self.Beta
 
-        self.units = self.units[np.isfinite(units[:,0])]
 
+        nodes = np.array(g_units.nodes)
+        temp_units = np.zeros((nodes.size, self.I_DIM))
+        temp_g_units = nx.Graph()
+        for i in range(nodes.size):
+            temp_units[i] = units[nodes[i]]
+            temp_g_units.add_node(i)
+        for edge in g_units.edges:
+            temp_g_units.add_edge(np.argwhere(nodes == edge[0]).item(0), np.argwhere(nodes == edge[1]).item(0))
+
+        self.units = temp_units
+        self.g_units = temp_g_units
 
 
 if __name__ == '__main__':
@@ -175,12 +175,11 @@ if __name__ == '__main__':
     n_samples = 1500
     noisy_circles = datasets.make_circles(n_samples=n_samples, factor=.5, noise=.05)
 
-    gng = GNG(num = 100, end = 100000, lam = 100, ew = 0.1, en = 0.005, amax = 50.0, alpha = 0.5,  beta = 0.995, sig_kernel = 1)
+    gng = GNG(num = 100, end = 10000, lam = 100, ew = 0.1, en = 0.005, amax = 50.0, alpha = 0.5,  beta = 0.995)
 
     gng.train(noisy_circles[0])
+
     plt.scatter(noisy_circles[0][:,0], noisy_circles[0][:,1])
-
-
     nx.draw_networkx_nodes(gng.g_units,gng.units,node_size=50,node_color=(0.5,1,1))
     nx.draw_networkx_edges(gng.g_units,gng.units,width=2,edge_color='b',alpha=0.5)
 
